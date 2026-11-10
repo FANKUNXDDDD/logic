@@ -1,4 +1,4 @@
-/* iRiLLL MODZ — v3.5.5 ROBUST PATCH */
+/* iRiLLL MODZ */
 (function () {
   'use strict';
   if (window.__pb) return;
@@ -121,35 +121,18 @@
   }
 
   function bootCore() {
-    var V = '3.5.5';
+    var V = '3.5.4';
     var BRAND = 'iRiLLL MODZ';
     function log() { try { console.log.apply(console, ['[iR]'].concat([].slice.call(arguments))); } catch (e) {} }
 
-    // === PATCH v3.5.5 ===
-    // Semua API disimpan di Symbol + WeakMap, TIDAK di window.__pb / __pbx / dll
-    // untuk menghindari deteksi anti-cheat bundle (regex /esp|aim|cheat|hack|pbx/)
-    var PB_HIDDEN = new WeakMap();
-    var _API_KEY = { pb: Symbol('x'), vis: Symbol('x'), nade: Symbol('x'), qc: Symbol('x'), pbx: Symbol('x') };
-    function pbhide(api, kind) {
-      try { PB_HIDDEN.set(_API_KEY[kind], api); } catch (e) {}
-    }
-    function pbget(kind) { try { return PB_HIDDEN.get(_API_KEY[kind]); } catch (e) { return null; } }
-    // ====================
-
-    // === PATCH v3.5.5 ===
-    // FIX INTEGRITY: pakai multiple pattern + fallback aman (jangan return)
-    // FIX GATE: pakai multiple pattern + JANGAN abort
-    // FIX DOCUMENT.WRITE: pakai Blob URL (aman di semua fase parsing)
-    // ====================
     (function preboot() {
       try {
         if (!/\/jogo|game\.html/.test(location.pathname)) return;
         if (window.G || window.HUDO || window.GAME_READY) return;
         if (window.__pbBoot) return;
         window.__pbBoot = 1;
-        try { var nb = +sessionStorage.getItem('pb_noboot') || 0; if (nb && Date.now() - nb < 5000) return; } catch (e0) {}
-
-        // JANGAN pakai document.write — pakai Blob URL untuk inject ulang bundle
+        try { var nb = +sessionStorage.getItem('pb_noboot') || 0; if (nb && Date.now() - nb < 120000) return; } catch (e0) {}
+        if (document.readyState === 'complete') return;
         function xget(u, accept) {
           var x = new XMLHttpRequest(); x.open('GET', u, false);
           try { x.setRequestHeader('Accept', accept); } catch (e) {}
@@ -157,59 +140,37 @@
           if (x.status !== 200 || !x.responseText) throw new Error('xhr ' + x.status);
           return x.responseText;
         }
-
         var html = xget(location.href, 'text/html,*/*');
         if (html.indexOf('/static/game/bundle.js') < 0) return;
         var bm = /src="([^"]*\/static\/game\/bundle\.js[^"]*)"/.exec(html);
         if (!bm) return;
         var bsrc = xget(new URL(bm[1], location.href).href, '*/*');
 
-        // === FIX INTEGRITY: multi-pattern + fallback AMAN ===
-        var integrityPatterns = [
-          /if\(!\(\(\)=>\{try\{const e=document\.currentScript[^}]*\}\}\)\(\)\)\{try\{location\.replace\("\/"\)\}catch\(t\)\{\}throw new Error\("pb"\)\}/,
-          /if\(!\(\(\)=>\{try\{var e=document\.currentScript[^}]*\}\}\)\(\)\)\{try\{location\.replace\("\/"\)\}catch\(t\)\{\}throw new Error\("pb"\)\}/,
-          /if\(!\(\(\)=>\{try\{let e=document\.currentScript[^}]*\}\}\)\(\)\)\{try\{location\.replace\("\/"\)\}catch\(t\)\{\}throw new Error\("pb"\)\}/
-        ];
-        var matched = false;
-        for (var pi = 0; pi < integrityPatterns.length; pi++) {
-          if (integrityPatterns[pi].test(bsrc)) {
-            bsrc = bsrc.replace(integrityPatterns[pi], 'if(0){}');
-            matched = true;
-            log('integrity check disabled (pattern ' + pi + ')');
-            break;
+        var integrityRe = /if\(!\(\(\)=>\{try\{const e=document\.currentScript,t=e&&e\.src&&new URL\(e\.src\);return!!t&&t\.origin===location\.origin&&"\/static\/game\/bundle\.js"===t\.pathname\}catch\(e\)\{return!1\}\}\)\(\)\)\{try\{location\.replace\("\/"\)\}catch\(t\)\{\}throw new Error\("pb"\)\}/;
+        if (integrityRe.test(bsrc)) {
+          bsrc = bsrc.replace(integrityRe, 'if(0){}');
+          log('integrity check disabled');
+        } else {
+          bsrc = bsrc.replace(/throw new Error\("pb"\)/g, 'void 0');
+          log('integrity check fallback applied');
+        }
+
+        var gateFlex = /([A-Za-z_$][\w$]*)="localhost"===location\.hostname\|\|"127\.0\.0\.1"===location\.hostname\|\|"\[::1\]"===location\.hostname/g;
+        var patched = false, foundIds = [];
+        bsrc = bsrc.replace(gateFlex, function (full, ident) {
+          foundIds.push(ident); patched = true; return ident + '=!0';
+        });
+        if (!patched) {
+          var gateUi = /const\s+([A-Za-z_$][\w$]*)="localhost"===location\.hostname\|\|"127\.0\.0\.1"===location\.hostname\|\|"\[::1\]"===location\.hostname,/;
+          var mUi = gateUi.exec(bsrc);
+          if (mUi) {
+            bsrc = bsrc.replace(mUi[0], 'const ' + mUi[1] + '=!0,');
+            foundIds.push(mUi[1] + '(legacy-comma)'); patched = true;
           }
         }
-        if (!matched) {
-          // Fallback: hapus location.replace DAN throw, JANGAN return
-          bsrc = bsrc.replace(/location\.replace\("\/"\)/g, 'void 0');
-          bsrc = bsrc.replace(/throw new Error\("pb"\)/g, 'void 0');
-          log('integrity fallback: replace+throw disabled');
-        }
+        if (!patched) { log('gate tidak cocok, abort'); return; }
+        log('gate patched:', foundIds.join(', '));
 
-        // === FIX GATE: multi-pattern, JANGAN abort ===
-        var gatePatterns = [
-          /([A-Za-z_$][\w$]*)="localhost"===location\.hostname\|\|"127\.0\.0\.1"===location\.hostname\|\|"\[::1\]"===location\.hostname/g,
-          /([A-Za-z_$][\w$]*)="localhost"===location\["hostname"\]\|\|"127\.0\.0\.1"===location\["hostname"\]\|\|"\[::1\]"===location\["hostname"\]/g,
-          /([A-Za-z_$][\w$]*)=location\.hostname==="localhost"\|\|location\.hostname==="127\.0\.0\.1"/g,
-          /const\s+([A-Za-z_$][\w$]*)\s*=\s*"localhost"\s*===\s*location\.hostname/g,
-          /var\s+([A-Za-z_$][\w$]*)\s*=\s*"localhost"\s*===\s*location\.hostname/g
-        ];
-        var patched = false, foundIds = [];
-        for (var gi = 0; gi < gatePatterns.length && !patched; gi++) {
-          bsrc = bsrc.replace(gatePatterns[gi], function (full, ident) {
-            foundIds.push(ident); patched = true;
-            return full.replace(ident + '=', ident + '=!0||').replace(/=\s*!0\|\|\s*/, '=!0||');
-          });
-        }
-        if (!patched) {
-          log('gate tidak match — game jalan TANPA bypass (RISK)');
-          // Minimal inject global flag; jangan return
-          bsrc = 'window.__pbGateForce=1;' + bsrc;
-        } else {
-          log('gate patched:', foundIds.join(', '));
-        }
-
-        // === INJECT pakai Blob URL (AMAN, tidak pakai document.write) ===
         var parsed = new DOMParser().parseFromString(html, 'text/html');
         var scripts = [].slice.call(parsed.querySelectorAll('script')).map(function (s) {
           return { src: s.getAttribute('src'), text: s.textContent, type: s.getAttribute('type') || '' };
@@ -218,30 +179,15 @@
         [].slice.call(parsed.querySelectorAll('script')).forEach(function (s) { if (s.parentNode) s.parentNode.removeChild(s); });
         var dt = parsed.doctype ? '<!doctype ' + parsed.doctype.name + '>' : '<!doctype html>';
         var clean = dt + parsed.documentElement.outerHTML;
-
-        // Buat Blob URL untuk bundle yang sudah di-patch
         var burl = '';
         try { burl = URL.createObjectURL(new Blob([bsrc], { type: 'text/javascript' })); } catch (e1) {}
-
-        // Set cookie pbapp dengan aman
         try {
           if (document.referrer.indexOf('android-app://') === 0 ||
               matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches)
             document.cookie = 'pbapp=1; max-age=31536000; path=/; secure; samesite=lax';
         } catch (e4) {}
-
-        // Reset dokumen — fallback ke reload jika gagal
-        try {
-          document.open();
-          document.write(clean);
-          document.close();
-        } catch (e2) {
-          try { sessionStorage.setItem('pb_noboot', String(Date.now())); } catch (e3) {}
-          location.reload();
-          return;
-        }
-
-        // Inject scripts berurutan (bundle pakai Blob URL)
+        try { document.open(); document.write(clean); document.close(); }
+        catch (e2) { try { sessionStorage.setItem('pb_noboot', String(Date.now())); } catch (e3) {} location.reload(); return; }
         var i = 0;
         function next() {
           while (i < scripts.length) {
@@ -270,8 +216,6 @@
           }
         }
         next();
-
-        // Fallback reload jika game tidak boot
         setTimeout(function () {
           try {
             if (window.HUDO || window.GAME_READY) return;
@@ -339,10 +283,6 @@
 
     function aimWrite(dx, dy) { AIM.dx += dx; AIM.dy += dy; AIM.queued = true; }
 
-    // === PATCH v3.5.5 ===
-    // Aimbot: set yaw/pitch langsung (tidak bisa dihindari), tapi minimal
-    // jangan dispatch mousemove palsu (palsu = acflag "input falso")
-    // ====================
     function aimFlush(g) {
       if (!AIM.queued) return;
       AIM.queued = false;
@@ -388,7 +328,8 @@
       try {
         if (!DBG.el) {
           var d = document.createElement('div');
-          d.setAttribute('data-x', '1'); // === PATCH v3.5.5: ganti data-pb → data-x ===
+          d.setAttribute('data-pb', '1');
+          /* TEKS POJOK KIRI BAWAH — WARNA UNGU */
           d.style.cssText = 'position:fixed;left:6px;bottom:6px;padding:2px 7px;background:rgba(20,8,38,.75);color:#c084fc;font:700 10px monospace;z-index:2147483000;pointer-events:none;border-radius:3px;border:1px solid rgba(168,85,247,.45);text-shadow:0 0 6px rgba(168,85,247,.8)';
           (document.body || document.documentElement).appendChild(d);
           DBG.el = d;
@@ -1204,10 +1145,7 @@
       },
       unlock: function () { AIMLOCK.locked = false; return 'unlocked'; }
     };
-    // === PATCH v3.5.5: sembunyikan API ===
-    pbhide(PB_API, 'pb');
-    try { window.__pb = PB_API; } catch (e) {} // fallback untuk kompatibilitas internal
-    HIDDEN.pb = PB_API;
+    window.__pb = PB_API; HIDDEN.pb = PB_API;
 
     /* ===== ESP ===== */
     var E = { on: 0, wrap: null, host: null, hostRect: null, hostAt: 0, slots: [], last: 0, n: 0 };
@@ -1215,7 +1153,7 @@
       if (E.wrap && E.wrap.parentNode) return true;
       var host = document.body || document.documentElement; if (!host) return false;
       var w = document.createElement('div');
-      w.setAttribute('data-x', '1');
+      w.setAttribute('data-pb', '1');
       w.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;overflow:hidden;pointer-events:none;z-index:2147483000';
       host.appendChild(w); E.wrap = w; E.slots = []; return true;
     }
@@ -1258,7 +1196,7 @@
       E.hostAt = now;
       var best = null, ba = 0, cs = document.getElementsByTagName('canvas');
       for (var i = 0; i < cs.length; i++) {
-        var c = cs[i]; if (c.getAttribute('data-x') || c.id === 'crossCv') continue;
+        var c = cs[i]; if (c.getAttribute('data-pb') || c.id === 'crossCv') continue;
         var a = c.offsetWidth * c.offsetHeight;
         if (a > ba) { ba = a; best = c; }
       }
@@ -1362,7 +1300,7 @@
       if (BE.wrap && BE.wrap.parentNode) return true;
       var host = document.body || document.documentElement; if (!host) return false;
       var w = document.createElement('canvas');
-      w.setAttribute('data-x', '1');
+      w.setAttribute('data-pb', '1');
       w.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:2147482999';
       host.appendChild(w); BE.wrap = w; BE.ctx = w.getContext('2d'); return true;
     }
@@ -1373,7 +1311,7 @@
       BE.hostAt = now;
       var best = null, ba = 0, cs = document.getElementsByTagName('canvas');
       for (var i = 0; i < cs.length; i++) {
-        var c = cs[i]; if (c.getAttribute('data-x') || c.id === 'crossCv') continue;
+        var c = cs[i]; if (c.getAttribute('data-pb') || c.id === 'crossCv') continue;
         var a = c.offsetWidth * c.offsetHeight;
         if (a > ba) { ba = a; best = c; }
       }
@@ -1483,9 +1421,7 @@
         return { a: p.ammo, r: p.reserve, rl: +(p.reloading || 0), mag: w && w.mag, slot: p.slot, w: w && w.name };
       }
     };
-    pbhide(VIS_API, 'vis');
-    try { window.__pbvis = VIS_API; } catch (e) {}
-    HIDDEN.pbvis = VIS_API;
+    window.__pbvis = VIS_API; HIDDEN.pbvis = VIS_API;
 
     var WB = 200;
     function wbGun() {
@@ -1641,8 +1577,7 @@
             ns.onerror = function (ev) { try { if (rec.onerror) rec.onerror.call(rec.sock, ev); } catch (e) {} };
             ns.onclose = function (ev) {
               var code = ev ? ev.code : 0; rec.tries++;
-              // === PATCH v3.5.5: JANGAN reconnect kalau close code = match end / policy ===
-              if (rec.tries > 40 || code === 1008 || code === 1000 || code === 1001 || code === 4000) { rec.dead = 1; return; }
+              if (rec.tries > 40 || code === 1008) { rec.dead = 1; return; }
               revive(rec, Math.min(8000, 200 * Math.pow(1.3, Math.min(rec.tries, 12))));
             };
           }, wait == null ? 200 : wait);
@@ -2321,7 +2256,7 @@
       if (RD.el && RD.el.parentNode) return true;
       var host = document.body || document.documentElement; if (!host) return false;
       var w = document.createElement('div');
-      w.setAttribute('data-x', '1');
+      w.setAttribute('data-pb', '1');
       w.style.cssText = 'position:fixed;right:8px;bottom:8px;width:110px;height:110px;border-radius:50%;background:rgba(20,8,38,.75);border:1.5px solid rgba(168,85,247,.6);z-index:2147483000;pointer-events:none;display:none';
       host.appendChild(w); RD.el = w; RD.dots = []; return true;
     }
@@ -2395,7 +2330,7 @@
       if (FC.el && FC.el.parentNode) return true;
       var host = document.body || document.documentElement; if (!host) return false;
       var w = document.createElement('div');
-      w.setAttribute('data-x', '1');
+      w.setAttribute('data-pb', '1');
       w.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);border:1.5px dashed rgba(168,85,247,0.5);border-radius:50%;z-index:2147482999;pointer-events:none;display:none';
       host.appendChild(w); FC.el = w; return true;
     }
@@ -2412,13 +2347,13 @@
 
     var SL = { on: 0 };
 
-    /* ===== TRACER UNGU SOLID ===== */
+    /* ===== TRACER UNGU SOLID — RINGAN, TANPA RGB ===== */
     var TR = { on: 0, wrap: null, host: null, hostRect: null, hostAt: 0, last: 0 };
     function trInit() {
       if (TR.wrap && TR.wrap.parentNode) return true;
       var host = document.body || document.documentElement; if (!host) return false;
       var w = document.createElement('canvas');
-      w.setAttribute('data-x', '1');
+      w.setAttribute('data-pb', '1');
       w.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:2147482999';
       host.appendChild(w); TR.wrap = w; TR.ctx = w.getContext('2d'); return true;
     }
@@ -2429,7 +2364,7 @@
       TR.hostAt = now;
       var best = null, ba = 0, cs = document.getElementsByTagName('canvas');
       for (var i = 0; i < cs.length; i++) {
-        var c = cs[i]; if (c.getAttribute('data-x') || c.id === 'crossCv') continue;
+        var c = cs[i]; if (c.getAttribute('data-pb') || c.id === 'crossCv') continue;
         var a = c.offsetWidth * c.offsetHeight;
         if (a > ba) { ba = a; best = c; }
       }
@@ -2461,6 +2396,7 @@
       var ox = r.left + r.width / 2, oy = r.top;
       var my = self.team;
 
+      /* Style ungu solid — 1 pass glow + 1 pass core. Ringan banget. */
       ctx.lineWidth = 1.8;
       ctx.strokeStyle = 'rgba(168,85,247,0.95)';
       ctx.shadowColor = 'rgba(168,85,247,0.8)';
@@ -2630,9 +2566,7 @@
         };
       }
     };
-    pbhide(PBX_API, 'pbx');
-    try { window.__pbx = PBX_API; } catch (e) {}
-    HIDDEN.pbx = PBX_API;
+    window.__pbx = PBX_API; HIDDEN.pbx = PBX_API;
 
     var _saLast = 0;
     var _trLast = 0;
@@ -2671,8 +2605,7 @@
     }, 1000);
 
     /* ============================================================
-       UI — v3.5.5: text tidak match regex anti-cheat
-       "ESP" → "Visual", "Aimbot" → "Target", "Wallbang" → "Penetrate"
+       UI (LEBIH LEBAR, LEBIH PENDEK KE BAWAH) — v3.5.4
        ============================================================ */
     (function pbUI() {
       if (window.__pbUI) return;
@@ -2690,15 +2623,19 @@
       })();
 
       var css = [
+        /* ===== ROOT — lebih lebar, lebih pendek ===== */
         '.fk{position:fixed;top:6px;right:6px;z-index:2147483600;font:10px/1.2 "Segoe UI",system-ui,sans-serif;color:#d9d4f5;',
         '  background:linear-gradient(160deg,#150725 0%,#0c0414 100%);border:1px solid #6d28d9;border-radius:8px;',
         '  box-shadow:0 0 0 1px rgba(124,58,237,.15), 0 8px 24px rgba(0,0,0,.65);',
         '  pointer-events:auto;user-select:none;overflow:hidden;max-height:72vh;display:flex;flex-direction:column}',
         '.fk.collapsed{width:auto;border-radius:8px}',
         '.fk.collapsed .fk-rail,.fk.collapsed .fk-body-col{display:none}',
+        /* ===== TABBAR MINIMIZE — lebih besar & panjang ke samping ===== */
         '.fk.collapsed .fk-tabbar{display:flex;align-items:center;gap:6px;padding:5px 9px;cursor:move;min-width:150px;border-radius:8px}',
         '.fk-tabbar{display:none}',
         '.fk.expanded{display:flex;flex-direction:row;width:auto;max-width:92vw}',
+
+        /* ===== LOGO ===== */
         '.fk-logo{width:18px;height:18px;flex:0 0 18px;border-radius:4px;display:flex;align-items:center;justify-content:center;',
         '  background:linear-gradient(145deg,#7c3aed 0%,#4c1d95 65%,#2e1065 100%);',
         '  box-shadow:0 0 6px rgba(168,85,247,.5), inset 0 1px 0 rgba(255,255,255,.22);',
@@ -2707,6 +2644,8 @@
         '  text-shadow:0 1px 0 #6d28d9,0 2px 2px rgba(0,0,0,.55);transform:translateZ(2px)}',
         '.fk-logo.small{width:14px;height:14px;flex:0 0 14px;border-radius:3px}',
         '.fk-logo.small::before{font-size:6.5px}',
+
+        /* ===== RAIL ===== */
         '.fk-rail{display:flex;flex-direction:column;background:rgba(12,4,20,.92);border-right:1px solid #2a1747;',
         '  width:48px;padding:3px 0;gap:0;flex:0 0 48px;overflow-y:auto;max-height:70vh}',
         '.fk-rail::-webkit-scrollbar{width:1px}',
@@ -2718,26 +2657,38 @@
         '.fk-rail-btn:hover{background:rgba(124,58,237,.12);color:#c4b5fd}',
         '.fk-rail-btn.on{background:linear-gradient(135deg,#7c3aed,#5b21b6);border-color:#a855f7;box-shadow:0 0 6px rgba(168,85,247,.4)}',
         '.fk-rail-btn.on i,.fk-rail-btn.on span{color:#fff}',
+
+        /* ===== BODY COL — lebih lebar ===== */
         '.fk-body-col{order:1;width:268px;display:flex;flex-direction:column;min-width:0;background:transparent}',
+
+        /* ===== HEADER ===== */
         '.fk-h{display:flex;align-items:center;gap:5px;padding:4px 6px;border-bottom:1px solid #2a1747;',
         '  background:rgba(12,4,20,.6);cursor:move}',
         '.fk-h .title{font-size:9px;color:#e9d5ff;letter-spacing:.5px;font-weight:900;display:flex;align-items:center;gap:3px}',
         '.fk-h .title b{color:#a855f7}',
+
+        /* ===== TOGGLE GROUP ===== */
         '.fk-toggle-group{display:flex;gap:2px;margin-left:auto}',
         '.fk-toggle{cursor:pointer;color:#c4b5fd;border-radius:3px;width:15px;height:15px;',
         '  display:flex;align-items:center;justify-content:center;flex:0 0 15px;font-size:7px;',
         '  background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3)}',
         '.fk-toggle:hover{background:rgba(124,58,237,.4);color:#fff}',
+
+        /* ===== BODY — diperpendek max-height ===== */
         '.fk-body{padding:3px 5px 5px;max-height:48vh;overflow:auto;background:transparent}',
         '.fk-body::-webkit-scrollbar{width:2px}',
         '.fk-body::-webkit-scrollbar-thumb{background:#4c1d95;border-radius:2px}',
         '.fk-page{display:none}',
         '.fk-page.on{display:block}',
+
+        /* ===== CARDS ===== */
         '.fk-card{background:rgba(22,9,38,.55);border:1px solid #2a1846;border-radius:4px;padding:3px 5px;margin-bottom:3px}',
         '.fk-card-h{display:flex;align-items:center;gap:3px;margin-bottom:2px;padding-bottom:1px;border-bottom:1px solid rgba(124,58,237,.15)}',
         '.fk-card-h i{font-size:8px;color:#a855f7}',
         '.fk-card-h span{font-size:7px;font-weight:800;color:#c4b5fd;letter-spacing:.2px;text-transform:uppercase}',
         '.fk-card-h .badge{margin-left:auto;font-size:5.5px;font-weight:900;padding:0 2px;border-radius:2px;background:#10b981;color:#fff;line-height:8px}',
+
+        /* ===== ROWS ===== */
         '.fk-row{display:flex;align-items:center;justify-content:space-between;gap:4px;padding:1px 0}',
         '.fk-row label{flex:1;color:#c9c0e8;font-size:8.5px;line-height:1.2}',
         '.fk-row small{display:block;color:#6f5f92;font-size:6px;line-height:1.1;margin-top:0}',
@@ -2745,21 +2696,29 @@
         '  background:#f59e0b;color:#1a0b2e;font-weight:900;vertical-align:middle;line-height:7px}',
         '.fk-row .new-badge{display:inline-block;padding:0 2px;margin-left:2px;border-radius:2px;font-size:5px;',
         '  background:#10b981;color:#fff;font-weight:900;vertical-align:middle;line-height:7px}',
+
+        /* ===== CHECKBOX ===== */
         '.fk-sw{position:relative;width:11px;height:11px;flex:0 0 11px;border-radius:2px;background:transparent;',
         '  border:1.2px solid #4c3a75;transition:all .1s;cursor:pointer;display:flex;align-items:center;justify-content:center}',
         '.fk-sw::after{content:"\\2713";font-size:7px;font-weight:900;color:#fff;opacity:0;transition:opacity .1s;line-height:1}',
         '.fk-sw.on{background:linear-gradient(135deg,#a855f7,#7c3aed);border-color:#c4b5fd;box-shadow:0 0 4px rgba(168,85,247,.5)}',
         '.fk-sw.on::after{opacity:1}',
+
+        /* ===== SLIDER ===== */
         '.fk-slider{display:flex;align-items:center;gap:3px;padding:0}',
         '.fk-slider label{flex:0 0 50px;font-size:7px;color:#a99bcb}',
         '.fk-slider input[type=range]{flex:1;height:2px;-webkit-appearance:none;background:#2e1b4e;border-radius:2px;outline:none}',
         '.fk-slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height:8px;border-radius:50%;',
         '  background:linear-gradient(135deg,#c4b5fd,#a855f7);cursor:pointer;box-shadow:0 0 3px rgba(168,85,247,.6);border:1px solid #e9d5ff}',
         '.fk-slider .n{flex:0 0 30px;text-align:right;font-size:6.5px;color:#c4b5fd;font-variant-numeric:tabular-nums;font-weight:700}',
+
+        /* ===== SELECT ===== */
         '.fk-select{width:100%;box-sizing:border-box;padding:2px 4px;border:1px solid #4c1d95;border-radius:3px;',
         '  font:8.5px "Segoe UI",sans-serif;outline:none;background:#150725;color:#d9d4f5;cursor:pointer;margin-top:1px}',
         '.fk-select:focus{border-color:#a855f7}',
         '.fk-select option{background:#150725;color:#d9d4f5}',
+
+        /* ===== BUTTONS ===== */
         '.fk-btns{display:flex;gap:3px;margin-top:2px}',
         '.fk-btn{flex:1;padding:2.5px 0;text-align:center;border-radius:3px;background:rgba(124,58,237,.12);',
         '  border:1px solid #4c1d95;color:#c4b5fd;cursor:pointer;font-size:7.5px;font-weight:700;transition:all .1s;',
@@ -2768,12 +2727,16 @@
         '.fk-btn:active{background:#7c3aed;color:#fff}',
         '.fk-btn.danger{border-color:#7f1d1d;background:rgba(127,29,29,.2);color:#fca5a5}',
         '.fk-btn.danger:hover{background:rgba(127,29,29,.45)}',
+
+        /* ===== FOOT / STATS ===== */
         '.fk-foot{margin-top:2px;padding-top:2px;border-top:1px solid rgba(124,58,237,.15);font-size:6.5px;color:#7a6b9e;font-variant-numeric:tabular-nums;line-height:1.25}',
         '.fk-warn{margin-top:2px;padding:1.5px 3px;border-radius:2px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);',
         '  color:#fbbf24;font-size:6px;line-height:1.2}',
         '.fk-sa-tgt{font-size:6.5px;color:#10b981;padding:1px 3px;margin-top:1.5px;background:rgba(16,185,129,.08);border-radius:2px;border:1px solid rgba(16,185,129,.3)}',
         '.fk-nade-st{font-size:6.5px;color:#c4b5fd;padding:1px 3px;margin-top:1.5px;background:rgba(124,58,237,.1);border-radius:2px;border:1px solid rgba(124,58,237,.3);line-height:1.2}',
         '.fk-qq-st{font-size:6.5px;color:#7dd3fc;padding:1px 3px;margin-top:1.5px;background:rgba(14,165,233,.08);border-radius:2px;border:1px solid rgba(14,165,233,.3);line-height:1.2}',
+
+        /* ===== WATERMARK KIRI ATAS ===== */
         '#ir-watermark{position:fixed;top:10px;left:10px;z-index:2147483605;pointer-events:none;',
         '  font:900 22px/1 "Segoe UI",sans-serif;color:rgba(168,85,247,0.85);letter-spacing:3px;',
         '  text-shadow:0 0 14px rgba(168,85,247,.85),0 0 6px rgba(168,85,247,.5),0 2px 4px rgba(0,0,0,.7);',
@@ -2781,9 +2744,13 @@
         '#ir-watermark .order{margin-top:6px;font:800 13px/1.3 "Segoe UI",sans-serif;color:rgba(233,213,255,.95);',
         '  letter-spacing:.8px;text-shadow:0 0 8px rgba(168,85,247,.8),0 2px 3px rgba(0,0,0,.8)}',
         '#ir-watermark .order b{color:#c084fc;font-weight:900;text-shadow:0 0 10px rgba(192,132,252,1)}',
+
+        /* ===== FPS ===== */
         '#ir-fps-ms{position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:2147483605;',
         '  background:rgba(12,4,20,.8);color:#a855f7;padding:1.5px 6px;border-radius:3px;',
         '  font:700 8px monospace;pointer-events:none;box-shadow:0 2px 5px rgba(0,0,0,.4);border:1px solid rgba(124,58,237,.35)}',
+
+        /* ===== FLOAT EYE ===== */
         '#ir-float-eye{position:fixed;top:6px;right:6px;z-index:2147483606;background:rgba(124,58,237,0.3);color:#fff;',
         '  width:20px;height:20px;border-radius:50%;display:none;align-items:center;justify-content:center;',
         '  cursor:pointer;box-shadow:0 2px 5px rgba(0,0,0,0.3);border:1px solid rgba(168,85,247,0.5);font-size:8px;transition:all .15s}',
@@ -2791,7 +2758,7 @@
       ].join('');
 
       var style = document.createElement('style');
-      style.setAttribute('data-x', '1');
+      style.setAttribute('data-pb', '1');
       style.textContent = css;
       (document.head || document.documentElement).appendChild(style);
 
@@ -2894,7 +2861,7 @@
       }
 
       var panel = el('div', 'fk collapsed');
-      panel.setAttribute('data-x', '1');
+      panel.setAttribute('data-pb', '1');
 
       var rail = el('div', 'fk-rail');
       var bodyCol = el('div', 'fk-body-col');
@@ -2922,6 +2889,7 @@
       var body = el('div', 'fk-body');
       bodyCol.appendChild(body);
 
+      /* ===== TABBAR MINIMIZE — lebih gede & panjang ke samping ===== */
       var tabbar = el('div', 'fk-tabbar');
       var tbLogo = el('div', 'fk-logo small');
       tabbar.appendChild(tbLogo);
@@ -2952,19 +2920,18 @@
       hideUiBtn.addEventListener('click', function (e) { e.stopPropagation(); setUiHidden(true); });
       floatEye.addEventListener('click', function () { setUiHidden(false); });
 
-      // === PATCH v3.5.5: label tab tidak match regex anti-cheat ===
       var TAB_META = {
         aim:    { icon: 'fa-crosshairs',    label: 'MAIN',    title: 'Aim Lock' },
-        aimbot: { icon: 'fa-bullseye',      label: 'TARGET',  title: 'Aimbot' },
-        esp:    { icon: 'fa-eye',           label: 'VISUAL',  title: 'ESP' },
-        silent: { icon: 'fa-crosshairs',    label: 'SILENT',  title: 'Silent' },
+        aimbot: { icon: 'fa-bullseye',      label: 'AIMBOT',  title: 'Aimbot' },
+        esp:    { icon: 'fa-eye',           label: 'ESP',     title: 'ESP' },
+        silent: { icon: 'fa-crosshairs',    label: 'SILENT',  title: 'Silent Aim' },
         shoot:  { icon: 'fa-gun',           label: 'SHOOT',   title: 'Shooting' },
         combat: { icon: 'fa-shield-halved', label: 'COMBAT',  title: 'Combat' },
         fly:    { icon: 'fa-plane',         label: 'FLY',     title: 'Fly' },
         noclip: { icon: 'fa-ghost',         label: 'NOCLIP',  title: 'Noclip' },
         nade:   { icon: 'fa-bomb',          label: 'NADE',    title: 'Grenade' },
         move:   { icon: 'fa-feather',       label: 'MOVE',    title: 'Movement' },
-        macro:  { icon: 'fa-bolt',          label: 'MACRO',   title: 'Auto QQ' },
+        macro:  { icon: 'fa-bolt',          label: 'MACRO',   title: 'Makro Auto QQ' },
         misc:   { icon: 'fa-sliders',       label: 'MISC',    title: 'Misc' },
         info:   { icon: 'fa-circle-info',   label: 'INFO',    title: 'Info' }
       };
@@ -3033,11 +3000,11 @@
       cAim4.appendChild(row('Invert Y', invertT.node, 'Balik vertikal'));
       pAim.appendChild(cAim4);
 
-      /* ================= TARGET ================= */
-      var pAb = addTab('aimbot', 'TARGET');
-      var cAb1 = card('fa-bullseye', 'Target Settings', 'PREMIUM');
+      /* ================= AIMBOT ================= */
+      var pAb = addTab('aimbot', 'AIMBOT');
+      var cAb1 = card('fa-bullseye', 'Aimbot Settings', 'PREMIUM');
       var aimbotT = toggle('aimbot_en', false, function (on) { window.__pb.aimbot(on); });
-      cAb1.appendChild(rowRisk('Enable target', aimbotT.node, 'Snap saat fire'));
+      cAb1.appendChild(rowRisk('Enable aimbot', aimbotT.node, 'Snap saat fire'));
       var abGainS = slider(0.5, 3.0, 0.05, P.aimbotGain, function (v) { return 'x' + v.toFixed(2); }, function (v) { window.__pb.aimbotGain(v); });
       abGainS.label.textContent = 'Snap'; cAb1.appendChild(abGainS.node);
       var abHoldS = slider(50, 800, 10, P.aimbotHoldMs, function (v) { return v.toFixed(0) + 'ms'; }, function (v) { window.__pb.aimbotHold(v); });
@@ -3051,21 +3018,21 @@
       povCircleS.label.textContent = 'Size'; cAb2.appendChild(povCircleS.node);
       pAb.appendChild(cAb2);
 
-      /* ================= VISUAL ================= */
-      var pEsp = addTab('esp', 'VISUAL');
-      var cEsp1 = card('fa-layer-group', 'Visual Settings', 'PREMIUM');
+      /* ================= ESP ================= */
+      var pEsp = addTab('esp', 'ESP');
+      var cEsp1 = card('fa-layer-group', 'ESP Settings', 'PREMIUM');
       var espT = toggle('esp_enemy', false, function (on) { if (on) window.__pbvis.on(); else window.__pbvis.off(); });
-      cEsp1.appendChild(row('Enemy visual', espT.node, 'Box ungu + HP'));
+      cEsp1.appendChild(row('Enemy ESP', espT.node, 'Box ungu + HP'));
       var espNameT = toggle('esp_name', false, function (on) { window.__pbvis.name(on); });
-      cEsp1.appendChild(rowNew('Show name', espNameT.node, 'Nama di atas box'));
+      cEsp1.appendChild(rowNew('ESP name', espNameT.node, 'Nama di atas box'));
       var hpoT = toggle('esp_hp', false, function (on) { window.__pbx.hpo(on); });
       cEsp1.appendChild(row('HP overlay', hpoT.node, 'Bar + angka HP'));
       var boneT = toggle('esp_bone', false, function (on) { window.__pbvis.bone(on, BE.range); });
-      cEsp1.appendChild(rowRisk('Bone visual', boneT.node, 'Skeleton RGB'));
+      cEsp1.appendChild(rowRisk('Bone ESP', boneT.node, 'Skeleton RGB'));
       var boneRangeS = slider(20, 120, 5, BE.range, function (v) { return v + 'm'; }, function (v) { BE.range = v; if (BE.on) window.__pbvis.bone(1, v); });
       boneRangeS.label.textContent = 'Range'; cEsp1.appendChild(boneRangeS.node);
       var trT = toggle('esp_tracer', false, function (on) { window.__pbx.tracer(on); });
-      cEsp1.appendChild(rowNew('Line tracer', trT.node, 'Garis ungu solid'));
+      cEsp1.appendChild(rowNew('ESP tracer', trT.node, 'Garis ungu solid'));
       var rdT = toggle('esp_radar', false, function (on) { window.__pbx.radar(on); });
       cEsp1.appendChild(row('Radar mini', rdT.node, 'Minimap musuh'));
       pEsp.appendChild(cEsp1);
@@ -3077,9 +3044,9 @@
 
       /* ================= SILENT ================= */
       var pSil = addTab('silent', 'SILENT');
-      var cSil1 = card('fa-crosshairs', 'Silent', 'PREMIUM');
+      var cSil1 = card('fa-crosshairs', 'Silent Aim', 'PREMIUM');
       var saT = toggle('silent_aim', false, function (on) { window.__pbx.silent(on); });
-      cSil1.appendChild(rowRisk('Silent mode', saT.node, 'Peluru auto ke kepala'));
+      cSil1.appendChild(rowRisk('Silent aim', saT.node, 'Peluru auto ke kepala'));
       var saFovS = slider(30, 360, 5, SA.fovRad * 180 / Math.PI, function (v) { return v.toFixed(0) + '°'; }, function (v) { window.__pbx.silentFov(v); });
       saFovS.label.textContent = 'FOV'; cSil1.appendChild(saFovS.node);
       var saTgt = el('div', 'fk-sa-tgt', 'target: —');
@@ -3109,9 +3076,8 @@
       /* ================= COMBAT ================= */
       var pCombat = addTab('combat', 'COMBAT');
       var cCb1 = card('fa-shield-halved', 'Weapon');
-      // === PATCH: "Wallbang" → "Penetrate" ===
       var wallT = toggle('combat_wallbang', false, function (on) { window.__pbx.wallbang(on); });
-      cCb1.appendChild(rowRisk('Penetrate wall', wallT.node, 'Tembus dinding'));
+      cCb1.appendChild(rowRisk('Wallbang', wallT.node, 'Tembus dinding'));
       var ammoT = toggle('combat_infammo', false, function (on) { window.__pbx.infAmmo(on); });
       cCb1.appendChild(rowRisk('Infinite ammo', ammoT.node, 'Ammo tak habis'));
       var nrecT = toggle('combat_norecoil', false, function (on) { window.__pbx.noRecoil(on); });
@@ -3292,20 +3258,18 @@
       var bypassInfo = el('div');
       bypassInfo.style.cssText = 'font-size:6.5px;line-height:1.3;color:#6f5f92';
       bypassInfo.innerHTML =
-        'L1 preboot · flex gate (multi-pattern)<br>' +
-        'L1b integrity check bypass (multi-pattern)<br>' +
+        'L1 preboot · flex gate<br>' +
+        'L1b integrity check bypass<br>' +
         'L2 hide · L3 self-heal · L4 fp-rotate<br>' +
         'L5 direct-state-write · L6 bone-accurate<br>' +
-        'Anti-cheat: API di WeakMap · data-x<br>' +
         'Fly bypass: throttle + stealth write<br>' +
         'Silent nade bypass: rAF chase<br>' +
-        'Target: POV + LOS realtime (80ms)<br>' +
-        'Visual: 30fps optimized · GPU Accel<br>' +
-        'Line: ungu solid single-pass<br>' +
+        'Aimbot: POV + LOS realtime (80ms)<br>' +
+        'ESP: 30fps optimized · GPU Accel<br>' +
+        'Tracer: ungu solid single-pass<br>' +
         'Auto QQ: pattern 1-3-1 / 2-3-2<br>' +
-        'Silent: 360° FOV + hitTest rewrite<br>' +
-        'Instant swap: nextShot gate + anim skip<br>' +
-        'WS anti-kick: no reconnect on 1000/1001/1008';
+        'Silent aim: 360° FOV + hitTest rewrite<br>' +
+        'Instant swap: nextShot gate + anim skip';
       cInf2.appendChild(bypassInfo);
       pInfo.appendChild(cInf2);
 
